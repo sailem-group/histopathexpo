@@ -173,61 +173,6 @@ def preprocessing_data():
 
     return data_frame
 
-
-def retrieving_top_neighbors(input_data, k=15):
-    """
-    Retrieves top neighbors for a given input using KNN.
-    Args:
-        input_data (str): JSON string of input data.
-        k (int): Number of neighbors to retrieve.
-    Returns:
-        DataFrame: DataFrame containing the top neighbors.
-    """
-    # Convert input data from JSON to a pandas Series
-    json_dict = json.loads(input_data)
-    keys_view = json_dict.keys()
-    column_names = list(keys_view)
-    column_names.append('performance_mean')
-    input_data = pd.Series(json_dict)
-
-    # Preprocess data
-    data_frame = preprocessing_data()
-    data_frame = data_frame[column_names]
-    data_frame = cleaning_specific_columns(data_frame, column_names)
-
-    # Define special columns for weighting
-    spec_columns = [
-        col for col in data_frame.columns if col.startswith('subspec_')]
-
-    # Define a custom weight function
-    def custom_weights_function(distances):
-        return 1 / (1 + distances)
-
-    # Initialize KNN model with or without custom weights
-    if len(spec_columns) > 0:
-        knn = KNeighborsRegressor(
-            n_neighbors=k, weights=custom_weights_function)
-    else:
-        knn = KNeighborsRegressor(n_neighbors=k)
-
-    knn.fit(data_frame.drop(
-        columns=['performance_mean']), data_frame['performance_mean'])
-
-    # Apply weighting to the input data
-    for col in spec_columns:
-        if col in input_data.index:
-            input_data[col] *= 9  # Adjust weight factor as needed
-
-    # Find indices of top neighbors
-    distances, indices = knn.kneighbors(input_data.values.reshape(1, -1))
-
-    # Retrieve top neighbors
-    top_neighbors = data_frame.iloc[indices[0]].sort_values(
-        by='performance_mean', ascending=False)
-
-    return top_neighbors
-
-
 def qualityIndexForData(df):
     """
     Enhances the DataFrame by adding a quality score based on several indicators.
@@ -285,3 +230,69 @@ def qualityIndexForData(df):
     df.drop(columns=list(added_columns), inplace=True)
 
     return df
+
+def retrieving_top_neighbors(input_data, k=15):
+    """
+    Retrieves top neighbors for a given input using KNN.
+    Args:
+        input_data (str): JSON string of input data.
+        k (int): Number of neighbors to retrieve.
+    Returns:
+        DataFrame: DataFrame containing the top neighbors.
+    """
+    # Convert input data from JSON to a pandas Series
+    json_dict = json.loads(input_data)
+    keys_view = json_dict.keys()
+    column_names = list(keys_view)
+    column_names.append('performance_mean')
+    input_data = pd.Series(json_dict)
+
+    if 'highQuality' in input_data:
+        highQuality = input_data['highQuality']
+        del input_data['highQuality']  # Remove 'highQuality' from the data
+    else:
+        highQuality = 0.0
+
+    # Preprocess data
+    data_frame = preprocessing_data()
+    data_frame = data_frame[column_names]
+    data_frame = cleaning_specific_columns(data_frame, column_names)
+
+    # Define special columns for weighting
+    spec_columns = [
+        col for col in data_frame.columns if col.startswith('subspec_')]
+
+    # Define a custom weight function
+    def custom_weights_function(distances):
+        return 1 / (1 + distances)
+
+    # Initialize KNN model with or without custom weights
+    if len(spec_columns) > 0:
+        knn = KNeighborsRegressor(
+            n_neighbors=k, weights=custom_weights_function)
+    else:
+        knn = KNeighborsRegressor(n_neighbors=k)
+
+    knn.fit(data_frame.drop(
+        columns=['performance_mean']), data_frame['performance_mean'])
+
+    # Apply weighting to the input data
+    for col in spec_columns:
+        if col in input_data.index:
+            input_data[col] *= 9  # Adjust weight factor as needed
+
+    # Find indices of top neighbors
+    distances, indices = knn.kneighbors(input_data.values.reshape(1, -1))
+
+    # Retrieve top neighbors
+    neighbors = data_frame.iloc[indices[0]].sort_values(
+        by='performance_mean', ascending=False)
+    
+    if highQuality != '0.0':
+        top_neighbors = qualityIndexForData(neighbors)
+        highQuality_value = float(highQuality)
+        # Filter out records where 'q_score' is less than 4
+        top_neighbors = top_neighbors[top_neighbors['q_score'] >= highQuality_value]
+        return top_neighbors
+
+    return neighbors
