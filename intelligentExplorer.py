@@ -1,6 +1,6 @@
 # Import necessary modules
 from utilities.importFile import *
-from sklearn.neighbors import KNeighborsRegressor
+from sklearn.neighbors import NearestNeighbors
 
 
 def cleaning_specific_columns(df, columns):
@@ -45,50 +45,38 @@ def processing_data_collection(data):
 
     for index, row in data.iterrows():
         # Extract data collection technologies and title from each row
-        technologies = row['data_collection_technology']
-        title = row['title']
-
-        # Skip rows with missing data collection technologies
-        if pd.isna(technologies):
-            continue
+        technologies = row['data_collection_technology'] if pd.notna(
+            row['data_collection_technology']) else ['None']
+        metrics = row['metrics_recorded'] if pd.notna(
+            row['metrics_recorded']) else ['None']
+        sources = row['data_source'] if pd.notna(
+            row['data_source']) else ['None']
+        classLabel = row['high_level_labels']
 
         # Split data collection technologies and process each one
         tech_list = str(technologies).strip('[]').split(',')
+        metric_list = str(metrics).strip('[]').split(',')
+        source_list = str(sources).strip('[]').split(',')
+        classLabel_list = str(classLabel).split(',')
+
         for tech in tech_list:
             tech = tech.strip().strip("'")
-            processed_data.append([tech, row['performance_mean'], title,
-                                   row['multiple_cohorts'], row['external_val_set'], row['ml_task_description'],
-                                   row['task_seg+obj_det'],  row['task_detection'],   row['task_prognosis'],
-                                   row['task_survival'],    row['task_treatment_design'],    row['task_risk_prediction'],
-                                   row['task_diagnosis_subtyping'], row['task_others'], row['subspec_bladder'],
-                                   row['subspec_brainca'], row['subspec_breastca'], row['subspec_cervical'], row['subspec_colorectal'],
-                                   row['subspec_dermca'], row['subspec_endometrial'], row['subspec_esophagus'],
-                                   row['subspec_gastric'], row['subspec_headandneck_others'], row['subspec_haemonc'], row['subspec_hepca'],
-                                   row['subspec_kidney'], row['subspec_lungca'], row['subspec_metastasis'], row['subspec_oral'],
-                                   row['subspec_others'], row['subspec_ovarian'], row['subspec_pancreatic'], row['subspec_prosca'],
-                                   row['subspec_thyroid'], row['doi'], row['article_date'], row['network_type'], row['performance_auc'],
-                                   row['performance_sensitivity (recall)'], row['performance_specificity'], row['DataSize_all'],
-                                   row['class_labels'], row['raw_data_availability'], row['code_availability'], row['methodological'],
-                                   row['performance_cindex'], row['performance_precision (PPV)'], row[
-                'performance_NPV'], row['performance_F1'],
-                row['performance_accuracy'], row['benchmarking'], row['implementation_detail'], row['data_source']])
+            for metric in metric_list:
+                metric = metric.strip().strip("'")
+                for source in source_list:
+                    source = source.strip().strip("'")
+                    for label in classLabel_list:
+                        label = label.strip().lower()
+                        processed_data.append([tech, metric, source, label] + [row[column] for column in row.index if column not in [
+                                              'data_collection_technology', 'metrics_recorded', 'data_source', 'high_level_labels']])
 
-    # Convert processed data into a DataFrame
-    df_processed = pd.DataFrame(processed_data, columns=['dataColl_techniques', 'performance_mean', 'title', 'multiple_cohorts', 'external_val_set',
-                                                         'ml_task_description', 'task_seg+obj_det',  'task_detection',   'task_prognosis',
-                                                         'task_survival',    'task_treatment_design',    'task_risk_prediction',     'task_diagnosis_subtyping',
-                                                         'task_others', 'subspec_bladder', 'subspec_brainca', 'subspec_breastca', 'subspec_cervical', 'subspec_colorectal',
-                                                         'subspec_dermca', 'subspec_endometrial', 'subspec_esophagus', 'subspec_gastric', 'subspec_headandneck_others',
-                                                         'subspec_haemonc', 'subspec_hepca', 'subspec_kidney', 'subspec_lungca', 'subspec_metastasis', 'subspec_oral',
-                                                         'subspec_others', 'subspec_ovarian', 'subspec_pancreatic', 'subspec_prosca', 'subspec_thyroid', 'doi', 'article_date',
-                                                         'network_type', 'performance_auc', 'performance_sensitivity (recall)', 'performance_specificity', 'DataSize_all',
-                                                         'class_labels', 'raw_data_availability', 'code_availability', 'methodological', 'performance_cindex',
-                                                         'performance_precision (PPV)', 'performance_NPV', 'performance_F1', 'performance_accuracy', 'benchmarking',
-                                                         'implementation_detail', 'data_source'])
+    # Construct DataFrame
+    df_processed = pd.DataFrame(processed_data, columns=['dataColl_techniques', 'metrics_recorded', 'data_source', 'high_level_labels'] + [
+                                column for column in data.columns if column not in ['data_collection_technology', 'metrics_recorded', 'data_source', 'high_level_labels']])
 
-    # Replace numerical codes with descriptive names for data collection techniques
-    df_processed.replace(
-        {"dataColl_techniques": data_collection_technique_dict}, inplace=True)
+    # Replace using dictionaries for data_collection_technique and network_type, and source categorization
+    df_processed.replace({"dataColl_techniques": data_collection_technique_dict,
+                         "metrics_recorded": network_to_category, "data_source": public_dataset}, inplace=True)
 
     return df_processed
 
@@ -103,7 +91,7 @@ def one_hot_encoding(data):
     """
     # Perform one-hot encoding on specified columns
     encoded_data = pd.get_dummies(
-        data, columns=['ml_task_description', 'dataColl_techniques', 'data_source'])
+        data, columns=['ml_task_description', 'dataColl_techniques','data_source', 'metrics_recorded', 'high_level_labels'])
     return encoded_data
 
 
@@ -121,8 +109,23 @@ def retrieving_cancer_types(row):
     # Join the column names with a comma if more than one type is found
     return ', '.join(cancer_types)
 
-# Function for preprocessing data
 
+def retrieving_task_types(row):
+    """
+    Retrieves task types based on the task columns in the DataFrame.
+    Args:
+        row (Series): A row of DataFrame.
+    Returns:
+        str: Comma-separated string of cancer types.
+    """
+    # Get columns with value 1 and replace names using the dictionary
+    task_types = [taskdict.get(col, col)
+                  for col in task_columns if row[col] == 1]
+    # Join the column names with a comma if more than one type is found
+    return ', '.join(task_types)
+
+
+# Function for preprocessing data
 
 def preprocessing_data():
     """
@@ -139,34 +142,41 @@ def preprocessing_data():
     # Process data collection techniques
     data_processed = processing_data_collection(data_frame)
     data_frame = data_processed
+    data_frame['DataCollection_technique'] = data_frame['dataColl_techniques']
+    data_frame['DatasetName'] = data_frame['data_source'].replace(
+        'None', np.nan)
     data_frame['DataSize_all_copy'] = data_frame['DataSize_all']
+    data_frame['DataSize_all_copy'] = data_frame.apply(
+        lambda row: f"{int(row['DataSize_all_copy'])} ({row['image_type']})" if pd.notna(
+            row['DataSize_all_copy']) and row['DataSize_all_copy'] != '' else row['DataSize_all_copy'],
+        axis=1
+    )
+    data_frame.replace({"image_type": image_typesdict}, inplace=True)
     data_frame['network_type_copy'] = data_frame['network_type']
     data_frame['multiple_cohorts_copy'] = data_frame['multiple_cohorts']
     # Define bins for binning the 'DataSize_all' column
-    # Use float('inf') for an open-ended upper bound
-    bins = [0, 500, 1000, 5000, float('inf')]
-    labels = [1, 2, 3, 4]
-    # Create a new categorical column based on data size
     data_frame['DataSize_all'] = pd.to_numeric(
         data_frame['DataSize_all'], errors='coerce')
-    data_frame['DataSize_all'] = pd.cut(
-        data_frame['DataSize_all'], bins=bins, labels=labels, include_lowest=True)
+    # Fill NaN values with a specific value (for example, 0) before cutting into categories
+    data_frame['DataSize_all'].fillna(0, inplace=True)
+    data_frame['DataSize_all'] = pd.cut(data_frame['DataSize_all'].astype(float), bins=[
+                                        0, 500, 1000, 5000, float('inf')], labels=[1, 2, 3, 4], include_lowest=True)
+
     # Get cancer types from subspecialty columns
     data_frame['cancer_type'] = data_frame.apply(
         retrieving_cancer_types, axis=1)
-    # Replace numerical codes with descriptive names for data sources
-    data_frame['data_source'] = data_frame['data_source'].replace(
-        public_dataset)
+    # Get task types from subspecialty columns
+    data_frame['task_type'] = data_frame.apply(retrieving_task_types, axis=1)
     # Convert 'article_date' to datetime format
     if data_frame['article_date'].dtype != 'datetime64[ns]':
         data_frame['article_date'] = pd.to_datetime(
             data_frame['article_date'], errors='coerce')
     # Set index for the DataFrame
-    data_frame.set_index(['title', 'doi', 'article_date', 'network_type_copy', 'performance_auc', 'performance_sensitivity (recall)',
-                          'performance_specificity', 'cancer_type', 'DataSize_all_copy', 'raw_data_availability',
-                          'code_availability', 'methodological', 'performance_cindex', 'performance_precision (PPV)',
-                          'performance_NPV', 'performance_F1', 'performance_accuracy', 'benchmarking',
-                          'implementation_detail', 'external_val_set', 'multiple_cohorts_copy'], inplace=True)
+    data_frame.set_index(['Paper_ID', 'title', 'doi', 'article_date', 'network_type', 'performance_auc', 'performance_sensitivity (recall)', 'performance_specificity',
+                          'cancer_type', 'task_type', 'DataCollection_technique', 'DataSize_all_copy', 'raw_data_availability', 'code_availability', 'methodological',
+                          'performance_cindex', 'performance_precision (PPV)', 'performance_NPV', 'performance_F1', 'performance_accuracy', 'benchmarking',
+                          'implementation_detail', 'external_val_set', 'multiple_cohorts_copy', 'data_links', 'code_links', 'classes', 'DatasetName'], inplace=True)
+
     # Perform one-hot encoding on the DataFrame
     encoded_data = one_hot_encoding(data_frame)
     data_frame = encoded_data
@@ -231,7 +241,7 @@ def qualityIndexForData(df):
 
     return df
 
-def retrieving_top_neighbors(input_data, k=15):
+def retrieving_top_neighbors(input, search_option='exact_match', k=15):
     """
     Retrieves top neighbors for a given input using KNN.
     Args:
@@ -241,58 +251,66 @@ def retrieving_top_neighbors(input_data, k=15):
         DataFrame: DataFrame containing the top neighbors.
     """
     # Convert input data from JSON to a pandas Series
-    json_dict = json.loads(input_data)
+    json_dict = json.loads(input)
     keys_view = json_dict.keys()
     column_names = list(keys_view)
     column_names.append('performance_mean')
     input_data = pd.Series(json_dict)
-
-    if 'highQuality' in input_data:
-        highQuality = input_data['highQuality']
-        del input_data['highQuality']  # Remove 'highQuality' from the data
-    else:
-        highQuality = 0.0
 
     # Preprocess data
     data_frame = preprocessing_data()
     data_frame = data_frame[column_names]
     data_frame = cleaning_specific_columns(data_frame, column_names)
 
-    # Define special columns for weighting
-    spec_columns = [
-        col for col in data_frame.columns if col.startswith('subspec_')]
+    # Sequential filtering based on the input_data fields in the required order
+    for prefix in ['subspec_', 'dataColl_', 'high_', 'ml_']:
+        columns_with_prefix = [col for col in column_names if col.startswith(prefix)]
+        if columns_with_prefix:
+            for col in columns_with_prefix:
+                # Check if the column exists in input_data and its value is 1
+                if col in input_data.index and input_data[col] == 1:
+                    # Filter data_frame to only include rows where this column's value is 1
+                    data_frame = data_frame[data_frame[col] == 1]
 
-    # Define a custom weight function
-    def custom_weights_function(distances):
-        return 1 / (1 + distances)
+                    # If the filtered data_frame becomes empty, stop further filtering
+                    if data_frame.empty:
+                        return data_frame  # Return empty result if no matches are found
 
-    # Initialize KNN model with or without custom weights
-    if len(spec_columns) > 0:
-        knn = KNeighborsRegressor(
-            n_neighbors=k, weights=custom_weights_function)
-    else:
-        knn = KNeighborsRegressor(n_neighbors=k)
+    if search_option == 'exact_match':
+        # Apply filters for remaining columns that do not have the specified prefixes
+        remaining_columns = [col for col in column_names if not col.startswith(('subspec_', 'dataColl_', 'high_', 'ml_', 'performance_'))]
 
-    knn.fit(data_frame.drop(
-        columns=['performance_mean']), data_frame['performance_mean'])
+        if remaining_columns:
+            # Check if the column exists in input_data and its value is valid
+            for col in remaining_columns:
+                # Apply the filter based on the remaining column values
+                data_frame = data_frame[data_frame[col] == input_data[col]]
 
-    # Apply weighting to the input data
-    for col in spec_columns:
-        if col in input_data.index:
-            input_data[col] *= 9  # Adjust weight factor as needed
+                # If the filtered data_frame becomes empty, stop further filtering
+                if data_frame.empty:
+                    return data_frame  # Return empty result if no matches are found
 
-    # Find indices of top neighbors
-    distances, indices = knn.kneighbors(input_data.values.reshape(1, -1))
-
-    # Retrieve top neighbors
-    neighbors = data_frame.iloc[indices[0]].sort_values(
-        by='performance_mean', ascending=False)
+        return qualityIndexForData(data_frame)  # Return the final filtered DataFrame
     
-    if highQuality != '0.0':
-        top_neighbors = qualityIndexForData(neighbors)
-        highQuality_value = float(highQuality)
-        # Filter out records where 'q_score' is less than 4
-        top_neighbors = top_neighbors[top_neighbors['q_score'] >= highQuality_value]
-        return top_neighbors
+    else: 
+        if len(data_frame) < k:
+        # If fewer records are available than k, adjust k to the number of available records
+        k = len(data_frame)
 
-    return neighbors
+        # Apply KNN only if there are records remaining
+        if k > 0:
+            knn = NearestNeighbors(n_neighbors=k, algorithm='auto', metric='euclidean').fit(data_frame)
+
+            # Convert input_data to numpy array if it's a pandas Series
+            if isinstance(input_data, pd.Series):
+                input_data = input_data.values.reshape(1, -1)
+
+            # Find indices of top neighbors
+            distances, indices = knn.kneighbors(input_data)
+
+            # Retrieve row names and performance means of top neighbors
+            top_neighbors = data_frame.iloc[indices[0]]
+            return qualityIndexForData(top_neighbors)
+        else:
+            # If no records are available after filtering, return an empty DataFrame
+            return pd.DataFrame()
